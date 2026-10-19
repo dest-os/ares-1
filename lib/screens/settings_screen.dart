@@ -16,6 +16,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _geminiCtrl;
+  late final TextEditingController _geminiCtrl2;
+  late final TextEditingController _geminiCtrl3;
   late final TextEditingController _openaiCtrl;
   late final TextEditingController _claudeCtrl;
   late final TextEditingController _grokCtrl;
@@ -49,6 +51,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     final s = widget.settings;
     _geminiCtrl = TextEditingController(text: s.geminiApiKey);
+    final ek = s.geminiApiKeys;
+    _geminiCtrl2 = TextEditingController(text: ek.isNotEmpty ? ek[0] : '');
+    _geminiCtrl3 = TextEditingController(text: ek.length > 1 ? ek[1] : '');
     _openaiCtrl = TextEditingController(text: s.openaiApiKey);
     _claudeCtrl = TextEditingController(text: s.claudeApiKey);
     _grokCtrl = TextEditingController(text: s.grokApiKey);
@@ -72,6 +77,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _geminiCtrl.dispose();
+    _geminiCtrl2.dispose();
+    _geminiCtrl3.dispose();
     _openaiCtrl.dispose();
     _claudeCtrl.dispose();
     _grokCtrl.dispose();
@@ -98,6 +105,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final s = widget.settings;
       s.geminiApiKey = _geminiCtrl.text;
+    s.geminiApiKeys = [_geminiCtrl2.text, _geminiCtrl3.text]
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+      s.geminiApiKeys = [_geminiCtrl2.text, _geminiCtrl3.text]
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
       s.openaiApiKey = _openaiCtrl.text;
       s.claudeApiKey = _claudeCtrl.text;
       s.grokApiKey = _grokCtrl.text;
@@ -186,6 +201,84 @@ class _SettingsScreenState extends State<SettingsScreen> {
               letterSpacing: 1.2,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _modelSecici({
+    required String etiket,
+    required String deger,
+    required List<String> secenekler,
+    List<String> eskiModeller = const [],
+    required ValueChanged<String?> onChanged,
+  }) {
+    final tum = <String>[...secenekler];
+    for (final e in eskiModeller) {
+      if (!tum.contains(e)) tum.add(e);
+    }
+    if (deger.isNotEmpty && !tum.contains(deger)) {
+      tum.insert(0, deger);
+    }
+    final secili = tum.contains(deger) && deger.isNotEmpty ? deger : tum.first;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            etiket,
+            style: const TextStyle(
+              color: Color(0xFF00BFFF),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.45),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF00BFFF).withOpacity(0.45),
+              ),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                dropdownColor: const Color(0xFF0A1520),
+                value: secili,
+                icon: const Icon(Icons.arrow_drop_down,
+                    color: Color(0xFF00BFFF)),
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                items: tum.map((m) {
+                  final eski = eskiModeller.contains(m);
+                  return DropdownMenuItem(
+                    value: m,
+                    child: Text(
+                      m,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: eski ? Colors.redAccent : Colors.white,
+                        fontSize: 13,
+                      ),
+                    ),
+                  );
+                }).toList(),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          if (eskiModeller.contains(secili))
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Bu model kullanımdan kalkmis olabilir.',
+                style: TextStyle(color: Colors.redAccent, fontSize: 11),
+              ),
+            ),
         ],
       ),
     );
@@ -310,6 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF02050A),
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Colors.black.withOpacity(0.85),
         elevation: 0,
@@ -337,7 +431,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(
+            20,
+            12,
+            20,
+            12 + MediaQuery.of(context).viewInsets.bottom,
+          ),
           children: [
             // Bilgi kartı
             NeonContainer(
@@ -451,16 +551,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _bolumBasligi('YAPAY ZEKA API ANAHTARLARI', ikon: Icons.psychology),
 
             _apiAlani(
-              etiket: 'Google Gemini API Anahtarı (zorunlu)',
+              etiket: 'Google Gemini API Anahtarı 1 (zorunlu)',
               ipucu: 'AIzaSy...',
               controller: _geminiCtrl,
               anahtarId: 'gemini',
-              aciklama: 'https://aistudio.google.com/apikey adresinden ücretsiz al.',
+              aciklama:
+                  'https://aistudio.google.com — her anahtar FARKLI projeden olmali. Ayni proje kotayi paylasir.',
             ),
-            _normalAlan(
-              etiket: 'Gemini Model Adı',
-              controller: _modelCtrl,
-              ipucu: 'gemini-3.8-flash',
+            _apiAlani(
+              etiket: 'Gemini API Anahtarı 2 (opsiyonel, baska proje)',
+              ipucu: 'AIzaSy... (proje 2)',
+              controller: _geminiCtrl2,
+              anahtarId: 'gemini2',
+            ),
+            _apiAlani(
+              etiket: 'Gemini API Anahtarı 3 (opsiyonel, baska proje)',
+              ipucu: 'AIzaSy... (proje 3)',
+              controller: _geminiCtrl3,
+              anahtarId: 'gemini3',
+            ),
+            _modelSecici(
+              etiket: 'Gemini Model',
+              deger: _modelCtrl.text,
+              secenekler: const [
+                'gemini-3.8-flash',
+                'gemini-3.7-flash',
+                'gemini-3.5-flash',
+                'gemini-2.5-flash',
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _modelCtrl.text = v);
+              },
             ),
             _apiAlani(
               etiket: 'OpenAI API Anahtarı (opsiyonel)',
@@ -489,10 +610,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               aciklama:
                   'https://build.nvidia.com adresinden al. Açık kaynak modeller (Llama, Mistral vb.).',
             ),
-            _normalAlan(
-              etiket: 'NVIDIA Model Adı',
-              controller: _nvidiaModelCtrl,
-              ipucu: 'meta/llama-3.1-8b-instruct',
+            _modelSecici(
+              etiket: 'NVIDIA Model',
+              deger: _nvidiaModelCtrl.text,
+              secenekler: const [
+                'meta/llama-3.3-70b-instruct',
+                'meta/llama3-70b-instruct',
+                'meta/llama-3.3-70b-instruct',
+                'google/gemma-2-9b-it',
+                'microsoft/phi-3-mini-4k-instruct',
+              ],
+              eskiModeller: const [
+                'meta/llama-3.1-8b-instruct',
+                'meta/llama-3.1-70b-instruct',
+              ],
+              onChanged: (v) {
+                if (v != null) setState(() => _nvidiaModelCtrl.text = v);
+              },
             ),
             _apiAlani(
               etiket: 'Özel API / Ajan Anahtarı (opsiyonel)',
