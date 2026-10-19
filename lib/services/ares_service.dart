@@ -354,38 +354,42 @@ class AresService extends ChangeNotifier {
       if (m.isNotEmpty && !sirali.contains(m)) sirali.add(m);
     }
 
+    final anahtarlar = settings.geminiTumAnahtarlar;
+    if (anahtarlar.isEmpty) {
+      throw Exception('Gemini anahtar yok. Ayarlardan ekle.');
+    }
+
     String sonHata = '';
-    for (final model in sirali) {
-      try {
-        final metin = await _geminiSesTekModel(base64Ses, model);
-        debugPrint('ARES STT basarili model: $model');
-        return metin;
-      } catch (e) {
-        sonHata = e.toString();
-        debugPrint('ARES STT model $model hata: $e');
-        if (sonHata.contains('401') ||
-            sonHata.contains('403') ||
-            sonHata.contains('API_KEY')) {
-          throw Exception(
-            'Gemini API anahtari gecersiz veya yetkisiz. Ayarlardan kontrol et.',
-          );
+    for (final key in anahtarlar) {
+      for (final model in sirali) {
+        try {
+          final metin = await _geminiSesTekModel(base64Ses, model, key);
+          debugPrint('ARES STT basarili model: $model');
+          return metin;
+        } catch (e) {
+          sonHata = e.toString();
+          debugPrint('ARES STT key/model hata: $e');
+          if (sonHata.contains('401') ||
+              sonHata.contains('403') ||
+              sonHata.contains('API_KEY')) {
+            // Bu anahtar gecersiz -> sonraki anahtar
+            break;
+          }
+          if (sonHata.contains('429') || sonHata.contains('quota')) {
+            // Kota dolu -> sonraki anahtar
+            break;
+          }
+          // 404 vb. -> sonraki model
         }
-        if (sonHata.contains('429') || sonHata.contains('quota')) {
-          throw Exception(
-            'Gemini kotan doldu (429). Birkaç dakika bekle veya '
-            'AI Studio\'da yeni anahtar / faturalandirma kontrol et. '
-            'Yerel komutlar (saat, tarih) kotasiz calisir.',
-          );
-        }
-        // 404 -> sonraki modele gec
       }
     }
     throw Exception(
-      'Ses tanima basarisiz (model: $tercih). Son hata: $sonHata',
+      'Ses tanima basarisiz. ${anahtarlar.length} anahtar denendi. Son: $sonHata. '
+      'Farkli projelerden Gemini anahtari ekle veya bekle.',
     );
   }
 
-  Future<String> _geminiSesTekModel(String base64Ses, String model) async {
+  Future<String> _geminiSesTekModel(String base64Ses, String model, String apiKey) async {
     final url = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
     );
@@ -412,7 +416,7 @@ class AresService extends ChangeNotifier {
           url,
           headers: {
             'Content-Type': 'application/json',
-            'x-goog-api-key': settings.geminiApiKey.trim(),
+            'x-goog-api-key': apiKey.trim(),
           },
           body: govde,
         )
@@ -543,6 +547,7 @@ class AresService extends ChangeNotifier {
 
   /// Yazılı komut (ARES kategorisinden veya başka yerden).
   Future<void> metinKomutuIsle(String metin) async {
+    // Yazili komut: Gemini ses anahtari GEREKMEZ
     if (!_baslatildi) await baslat();
     await settings.yukle();
     _config = await _gorevleriYukle();
@@ -550,8 +555,14 @@ class AresService extends ChangeNotifier {
     if (temiz.isEmpty) return;
     durum = AresDurum.isliyorum;
     sonSoylenen = temiz;
+    canliMetin = '';
     notifyListeners();
-    await _komutuIsle(temiz);
+    try {
+      await _komutuIsle(temiz);
+    } catch (e) {
+      debugPrint('metinKomutuIsle hata: $e');
+      await konus('Komut islenirken hata olustu.');
+    }
     durum = AresDurum.pasif;
     notifyListeners();
   }
