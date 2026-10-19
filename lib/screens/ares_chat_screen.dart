@@ -37,6 +37,8 @@ class _Konu {
       );
 }
 
+/// Sadece arka plan gorseli + tamamen seffaf dokunma alanlari.
+/// Ek yazi / ikon cizilmez; gorseldeki + mic gonder cark kullanilir.
 class AresChatScreen extends StatefulWidget {
   final SettingsService settings;
   final AresService? ares;
@@ -194,9 +196,7 @@ class _AresChatScreenState extends State<AresChatScreen> {
   }
 
   void _geri() {
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
   }
 
   void _settingsSheet() {
@@ -261,17 +261,41 @@ class _AresChatScreenState extends State<AresChatScreen> {
     );
   }
 
+  /// Tamamen seffaf dokunma alani — ikon/yazi yok.
+  Widget _zone({
+    required double left,
+    required double top,
+    required double width,
+    required double height,
+    required VoidCallback onTap,
+  }) {
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: const ColoredBox(color: Color(0x00000000)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final w = size.width;
     final h = size.height;
     final pad = MediaQuery.of(context).viewInsets.bottom;
-    final topPad = MediaQuery.of(context).padding.top;
+    final topSafe = MediaQuery.of(context).padding.top;
 
-    // Gorseldeki alt cubuk yaklasik oranlari (landscape)
+    // Gorsel layout (landscape chat mockup oranlari)
+    // Sol karakter paneli ~ %28, sag sohbet ~ %72
+    // Ust bar ~ %9, alt input cubugu ~ %12
+    final topBarH = h * 0.09;
+    final bottomBarTop = h * 0.88;
     final bottomBarH = h * 0.11;
-    final inputBottom = 8.0 + pad;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -279,6 +303,7 @@ class _AresChatScreenState extends State<AresChatScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // Arka plan — tek gorsel, baska dekor yok
           Image.asset(
             'assets/images/ares_chat_bg.png',
             fit: BoxFit.cover,
@@ -288,66 +313,63 @@ class _AresChatScreenState extends State<AresChatScreen> {
                 Container(color: const Color(0xFF02050A)),
           ),
 
-          // ----- UST BAR: gercek butonlar (kayma yok, pop karismasi yok) -----
-          Positioned(
-            left: 0,
-            right: 0,
-            top: topPad,
-            height: 52,
-            child: Row(
-              children: [
-                const SizedBox(width: 4),
-                IconButton(
-                  tooltip: 'Geri',
-                  onPressed: _geri,
-                  icon: const Icon(Icons.arrow_back_ios_new, size: 22),
-                  color: const Color(0xFF00BFFF),
-                ),
-                const Spacer(),
-                IconButton(
-                  tooltip: 'Sesli yanit',
-                  onPressed: () => setState(() => _sesli = !_sesli),
-                  icon: Icon(_sesli ? Icons.volume_up : Icons.volume_off),
-                  color: const Color(0xFF00BFFF),
-                ),
-                IconButton(
-                  tooltip: 'Ayarlar / beyin',
-                  onPressed: _settingsSheet,
-                  icon: const Icon(Icons.settings),
-                  color: const Color(0xFF00BFFF),
-                ),
-                IconButton(
-                  tooltip: 'Kapat',
-                  onPressed: _geri,
-                  icon: const Icon(Icons.close),
-                  color: Colors.white70,
-                ),
-                const SizedBox(width: 4),
-              ],
-            ),
+          // ===== UST SEFFAF ZONLAR (gorseldeki ikonlarin uzeri) =====
+          // Geri oku (sol ust)
+          _zone(
+            left: w * 0.015,
+            top: topSafe + h * 0.012,
+            width: w * 0.08,
+            height: topBarH * 0.7,
+            onTap: _geri,
+          ),
+          // Ses / hoparlor (sag ust sirasi — gorselde cark oncesi)
+          _zone(
+            left: w * 0.70,
+            top: topSafe + h * 0.012,
+            width: w * 0.07,
+            height: topBarH * 0.7,
+            onTap: () => setState(() => _sesli = !_sesli),
+          ),
+          // Cark — ayarlar
+          _zone(
+            left: w * 0.78,
+            top: topSafe + h * 0.012,
+            width: w * 0.07,
+            height: topBarH * 0.7,
+            onTap: _settingsSheet,
+          ),
+          // Kapat X
+          _zone(
+            left: w * 0.88,
+            top: topSafe + h * 0.012,
+            width: w * 0.09,
+            height: topBarH * 0.7,
+            onTap: _geri,
           ),
 
-          // ----- MESAJLAR -----
+          // ===== MESAJ ALANI (sadece balonlar, panel cizilmez) =====
           Positioned(
             left: w * 0.30,
-            right: w * 0.03,
-            top: topPad + 56,
-            bottom: bottomBarH + pad + 4,
+            right: w * 0.035,
+            top: topSafe + topBarH,
+            bottom: h - bottomBarTop + pad,
             child: ListView.builder(
               controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               itemCount: _aktif.mesajlar.length + (_busy ? 1 : 0),
               itemBuilder: (_, i) {
                 if (_busy && i == _aktif.mesajlar.length) {
                   return const Align(
                     alignment: Alignment.centerLeft,
                     child: Padding(
-                      padding: EdgeInsets.all(8),
+                      padding: EdgeInsets.all(10),
                       child: SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Color(0xFF00BFFF)),
+                          strokeWidth: 2,
+                          color: Color(0xFF00BFFF),
+                        ),
                       ),
                     ),
                   );
@@ -361,14 +383,15 @@ class _AresChatScreenState extends State<AresChatScreen> {
                     margin: const EdgeInsets.symmetric(vertical: 3),
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 8),
-                    constraints: BoxConstraints(maxWidth: w * 0.42),
+                    constraints: BoxConstraints(maxWidth: w * 0.40),
                     decoration: BoxDecoration(
                       color: me
-                          ? const Color(0xFF00BFFF).withOpacity(0.32)
-                          : Colors.black.withOpacity(0.5),
+                          ? const Color(0xFF00BFFF).withOpacity(0.30)
+                          : Colors.black.withOpacity(0.45),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: const Color(0xFF00BFFF).withOpacity(0.4)),
+                        color: const Color(0xFF00BFFF).withOpacity(0.35),
+                      ),
                     ),
                     child: Text(
                       m.metin,
@@ -381,122 +404,87 @@ class _AresChatScreenState extends State<AresChatScreen> {
             ),
           ),
 
-          // ----- ALT KONTROL CUBUGU (gorselin uzerinde, hizali) -----
-          Positioned(
-            left: w * 0.28,
-            right: w * 0.02,
-            bottom: inputBottom,
+          // ===== ALT SEFFAF ZONLAR (gorseldeki + / yazi / mic / gonder) =====
+          // + dosya
+          _zone(
+            left: w * 0.30,
+            top: bottomBarTop - pad * 0.05,
+            width: w * 0.08,
             height: bottomBarH * 0.85,
-            child: Material(
-              color: Colors.transparent,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (_ekler.isNotEmpty)
-                    SizedBox(
-                      height: 22,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: _ekler
-                            .map((e) => Padding(
-                                  padding: const EdgeInsets.only(right: 4),
-                                  child: Chip(
-                                    label: Text(e,
-                                        style: const TextStyle(fontSize: 10)),
-                                    onDeleted: () =>
-                                        setState(() => _ekler.remove(e)),
-                                    visualDensity: VisualDensity.compact,
-                                    backgroundColor: Colors.black54,
-                                    labelStyle:
-                                        const TextStyle(color: Colors.white),
-                                    deleteIconColor: Colors.white54,
-                                  ),
-                                ))
-                            .toList(),
-                      ),
-                    ),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // +
-                        IconButton(
-                          onPressed: _pick,
-                          icon: const Icon(Icons.add, size: 28),
-                          color: const Color(0xFF00BFFF),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                              minWidth: 44, minHeight: 44),
-                        ),
-                        // Yazi alani — sinirli, tasmaz
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(22),
-                            child: Container(
-                              height: 44,
-                              alignment: Alignment.centerLeft,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 14),
-                              color: Colors.black.withOpacity(0.40),
-                              child: TextField(
-                                controller: _ctrl,
-                                focusNode: _focus,
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 15),
-                                cursorColor: const Color(0xFF00BFFF),
-                                maxLines: 1,
-                                textInputAction: TextInputAction.send,
-                                onSubmitted: (_) => _send(),
-                                decoration: InputDecoration(
-                                  border: InputBorder.none,
-                                  isDense: true,
-                                  hintText: 'Mesaj yaz...',
-                                  hintStyle: TextStyle(
-                                      color: Colors.white.withOpacity(0.35),
-                                      fontSize: 14),
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(vertical: 10),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Mikrofon
-                        IconButton(
-                          onPressed: _mic ? null : _micTap,
-                          icon: Icon(_mic ? Icons.mic : Icons.mic_none,
-                              size: 26),
-                          color: _mic
-                              ? Colors.redAccent
-                              : const Color(0xFF00BFFF),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                              minWidth: 44, minHeight: 44),
-                        ),
-                        // Gonder
-                        IconButton(
-                          onPressed: _busy ? null : _send,
-                          icon: _busy
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Color(0xFF00BFFF)),
-                                )
-                              : const Icon(Icons.send, size: 24),
-                          color: const Color(0xFF00BFFF),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                              minWidth: 44, minHeight: 44),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+            onTap: _pick,
+          ),
+          // Mikrofon (gorseldeki mic)
+          _zone(
+            left: w * 0.80,
+            top: bottomBarTop - pad * 0.05,
+            width: w * 0.07,
+            height: bottomBarH * 0.85,
+            onTap: _mic ? () {} : _micTap,
+          ),
+          // Gonder (ucgen)
+          _zone(
+            left: w * 0.88,
+            top: bottomBarTop - pad * 0.05,
+            width: w * 0.09,
+            height: bottomBarH * 0.85,
+            onTap: _busy ? () {} : _send,
+          ),
+
+          // Yazi alani — gorseldeki pill uzerinde, hint/yazi/ikon YOK
+          // Sadece yazilan metin (beyaz) gorunur
+          Positioned(
+            left: w * 0.38,
+            right: w * 0.18,
+            top: bottomBarTop + bottomBarH * 0.18 - pad * 0.02,
+            height: bottomBarH * 0.55,
+            child: TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                height: 1.2,
+              ),
+              cursorColor: const Color(0xFF00BFFF),
+              maxLines: 1,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _send(),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                // hint yok — gorselde alan zaten belli
+                filled: false,
               ),
             ),
           ),
+
+          // Ek dosya isimleri (varsa, kucuk chip — zorunlu geri bildirim)
+          if (_ekler.isNotEmpty)
+            Positioned(
+              left: w * 0.38,
+              right: w * 0.18,
+              top: bottomBarTop - 26,
+              height: 24,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: _ekler
+                    .map(
+                      (e) => Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Chip(
+                          label: Text(e, style: const TextStyle(fontSize: 10)),
+                          onDeleted: () => setState(() => _ekler.remove(e)),
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: Colors.black54,
+                          labelStyle: const TextStyle(color: Colors.white),
+                          deleteIconColor: Colors.white54,
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
         ],
       ),
     );
