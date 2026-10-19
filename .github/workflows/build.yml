@@ -1,0 +1,71 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Java kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Flutter kur
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Gradle sürümünü 8.7 yap
+        run: |
+          # Hem kök hem iç içe tablet-main yapısını destekle
+          for f in \
+            android/gradle/wrapper/gradle-wrapper.properties \
+            tablet-main/android/gradle/wrapper/gradle-wrapper.properties
+          do
+            if [ -f "$f" ]; then
+              sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip|' "$f"
+              echo "Güncellendi: $f"
+              cat "$f"
+            fi
+          done
+
+      - name: Proje klasörünü bul
+        id: root
+        run: |
+          if [ -f "pubspec.yaml" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+          elif [ -f "tablet-main/pubspec.yaml" ]; then
+            echo "dir=tablet-main" >> $GITHUB_OUTPUT
+          else
+            echo "pubspec.yaml bulunamadı" >&2
+            find . -name pubspec.yaml | head
+            exit 1
+          fi
+
+      - name: Bağımlılıkları yükle
+        working-directory: ${{ steps.root.outputs.dir }}
+        run: flutter pub get
+
+      - name: APK oluştur
+        working-directory: ${{ steps.root.outputs.dir }}
+        run: flutter build apk --release
+
+      - name: APK'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: dest-os-ares-apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            tablet-main/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: warn
