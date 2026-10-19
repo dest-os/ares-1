@@ -61,6 +61,8 @@ class SettingsService extends ChangeNotifier {
   static const String _prefsKey = 'ares_settings_v3';
 
   String geminiApiKey = '';
+  /// Ek Gemini anahtarlari (farkli projelerden). 429'da sirayla denenir.
+  List<String> geminiApiKeys = [];
   String openaiApiKey = '';
   String openweatherApiKey = '';
   String githubToken = '';
@@ -69,8 +71,8 @@ class SettingsService extends ChangeNotifier {
   String claudeApiKey = '';
   String grokApiKey = '';
   String nvidiaApiKey = '';
-  /// NVIDIA model adı (örn. meta/llama-3.1-8b-instruct)
-  String nvidiaModel = 'meta/llama-3.1-8b-instruct';
+  /// NVIDIA model adı (örn. meta/llama-3.3-70b-instruct)
+  String nvidiaModel = 'meta/llama-3.3-70b-instruct';
   String customApiKey = '';
   String customApiBaseUrl = '';
   /// Özel ajan adı (gösterim için): Hermes, AutoGPT vb.
@@ -94,6 +96,12 @@ class SettingsService extends ChangeNotifier {
       if (raw != null && raw.isNotEmpty) {
         final map = jsonDecode(raw) as Map<String, dynamic>;
         geminiApiKey = (map['gemini_api_key'] ?? '').toString();
+        final ek = map['gemini_api_keys'];
+        if (ek is List) {
+          geminiApiKeys = ek.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+        } else {
+          geminiApiKeys = [];
+        }
         openaiApiKey = (map['openai_api_key'] ?? '').toString();
         openweatherApiKey = (map['openweather_api_key'] ?? '').toString();
         githubToken = (map['github_token'] ?? '').toString();
@@ -103,7 +111,7 @@ class SettingsService extends ChangeNotifier {
         grokApiKey = (map['grok_api_key'] ?? '').toString();
         nvidiaApiKey = (map['nvidia_api_key'] ?? '').toString();
         nvidiaModel =
-            (map['nvidia_model'] ?? 'meta/llama-3.1-8b-instruct').toString();
+            (map['nvidia_model'] ?? 'meta/llama-3.3-70b-instruct').toString();
         customApiKey = (map['custom_api_key'] ?? '').toString();
         customApiBaseUrl = (map['custom_api_base_url'] ?? '').toString();
         customAgentName = (map['custom_agent_name'] ?? 'Hermes').toString();
@@ -161,7 +169,19 @@ class SettingsService extends ChangeNotifier {
     return t.isNotEmpty && !t.contains('BURAYA') && t.length > 8;
   }
 
-  bool get geminiHazir => _anahtarDolu(geminiApiKey);
+  /// Birincil + ek anahtarlar (tekrarsiz, dolu olanlar).
+  List<String> get geminiTumAnahtarlar {
+    final list = <String>[];
+    final a = geminiApiKey.trim();
+    if (a.isNotEmpty) list.add(a);
+    for (final k in geminiApiKeys) {
+      final t = k.trim();
+      if (t.isNotEmpty && !list.contains(t)) list.add(t);
+    }
+    return list;
+  }
+
+  bool get geminiHazir => geminiTumAnahtarlar.isNotEmpty;
   bool get openaiHazir => _anahtarDolu(openaiApiKey);
   bool get claudeHazir => _anahtarDolu(claudeApiKey);
   bool get grokHazir => _anahtarDolu(grokApiKey);
