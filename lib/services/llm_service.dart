@@ -17,24 +17,28 @@ class LlmService {
       throw Exception('Bos mesaj');
     }
 
-    final sistem = 'Sen ${settings.asistanAdi} adinda, ${settings.sahipAdi} adli '
-        'kullanicinin Turkce konusan kisa ve net bir asistanisin. '
-        'Cevaplarin 1-3 cumleyi gecmesin. Kod veya markdown yazma.';
+    final sistem = 'Sen ${settings.asistanAdi}. Turkce, 1-2 cumle, net.';
 
-    // Sira: once birincil, sonra hazir olan digerleri
-    final siralar = <String>[
+    // Sadece anahtari DOLU beyinler
+    final adaylar = <String>[
       settings.birincilApi,
       ApiProvider.nvidia,
       ApiProvider.openai,
       ApiProvider.grok,
       ApiProvider.custom,
-      ApiProvider.claude,
       ApiProvider.gemini,
+      ApiProvider.claude,
     ];
     final denenen = <String>[];
-    for (final p in siralar) {
+    for (final p in adaylar) {
       if (denenen.contains(p)) continue;
+      if (!_providerHazir(p)) continue;
       denenen.add(p);
+    }
+    if (denenen.isEmpty) {
+      throw Exception(
+        'Hic kayitli API anahtari yok. Ayarlardan Gemini veya NVIDIA ekle ve KAYDET.',
+      );
     }
 
     String sonHata = '';
@@ -48,14 +52,31 @@ class LlmService {
       } catch (e) {
         sonHata = e.toString();
         debugPrint('LlmService $provider hata: $e');
-        // 401 anahtar yoksa sonraki; 429 kotada sonraki
         continue;
       }
     }
     throw Exception(
-      'Tum beyinler yanit veremedi. Son hata: $sonHata. '
-      'Gemini kota veya anahtarlari kontrol et.',
+      'Kayitli beyinler yanit veremedi (${denenen.join(", ")}). Son hata: $sonHata',
     );
+  }
+
+  bool _providerHazir(String provider) {
+    switch (provider) {
+      case ApiProvider.nvidia:
+        return settings.nvidiaHazir;
+      case ApiProvider.openai:
+        return settings.openaiHazir;
+      case ApiProvider.grok:
+        return settings.grokHazir;
+      case ApiProvider.custom:
+        return settings.customHazir;
+      case ApiProvider.claude:
+        return settings.claudeHazir;
+      case ApiProvider.gemini:
+        return settings.geminiHazir;
+      default:
+        return false;
+    }
   }
 
   Future<String> _tekSaglayici(
@@ -66,15 +87,7 @@ class LlmService {
     switch (provider) {
       case ApiProvider.nvidia:
         if (!settings.nvidiaHazir) throw Exception('NVIDIA anahtar yok');
-        return await _openaiUyumluCagir(
-          baseUrl: 'https://integrate.api.nvidia.com/v1',
-          apiKey: settings.nvidiaApiKey,
-          model: settings.nvidiaModel.trim().isEmpty
-              ? 'meta/llama-3.1-8b-instruct'
-              : settings.nvidiaModel.trim(),
-          sistem: sistem,
-          kullanici: mesaj,
-        );
+        return await _nvidiaCagir(sistem: sistem, kullanici: mesaj);
       case ApiProvider.openai:
         if (!settings.openaiHazir) throw Exception('OpenAI anahtar yok');
         return await _openaiUyumluCagir(
@@ -117,34 +130,32 @@ class LlmService {
     final beyin = settings.birincilEtiket;
     if (!settings.birincilHazir) {
       return 'Secili beyin ($beyin) icin API anahtari eksik. '
-          'Once anahtari yapistirip KAYDET, sonra test et.';
+          'Anahtari yapistirip KAYDET, sonra test et.';
     }
     try {
-      final yanit = await akilliYanit('Sadece su kelimeleri yaz: baglanti tamam');
+      final sistem = 'Kisa cevap ver.';
+      final yanit = await _tekSaglayici(
+        settings.birincilApi,
+        sistem,
+        'Sadece su kelimeleri yaz: baglanti tamam',
+      );
       if (yanit.trim().isEmpty) {
-        return 'Sunucu bos yanit dondu. Model adini kontrol et ($beyin).';
+        return 'Sunucu bos yanit dondu ($beyin). Model adini kontrol et.';
       }
       return 'Basarili ($beyin): $yanit';
     } catch (e) {
       final msg = e.toString();
       debugPrint('baglantiTesti hata: $msg');
-      // Kullaniciya kisaltilmis net mesaj
       if (msg.contains('401') || msg.contains('403')) {
         return 'Yetki hatasi (401/403): API anahtari yanlis veya suresi dolmus. ($beyin)';
       }
       if (msg.contains('404')) {
         return 'Model bulunamadi (404): Model adini kontrol et. ($beyin)';
       }
-      if (msg.contains('429')) {
-        return 'Kota asildi (429): Biraz bekleyip tekrar dene. ($beyin)';
+      if (msg.contains('429') || msg.contains('quota')) {
+        return 'Kota doldu (429) ($beyin). Baska beyin sec veya bekle.';
       }
-      if (msg.contains('SocketException') ||
-          msg.contains('Failed host lookup') ||
-          msg.contains('Network')) {
-        return 'Internet baglantisi yok veya engellenmis.';
-      }
-      final kisa = msg.length > 180 ? '${msg.substring(0, 180)}...' : msg;
-      return 'Hata ($beyin): $kisa';
+      return 'Hata ($beyin): $msg';
     }
   }
 
@@ -155,6 +166,108 @@ class LlmService {
       u = u.replaceAll(RegExp(r'/chat/completions$'), '');
     }
     return u;
+  }
+
+
+  /// NVIDIA: once /v1/models ile hesabinda acik modelleri al, sonra dene.
+  Future<List<String>> nvidiaModelListesi() async {
+    final key = settings.nvidiaApiKey.trim();
+    if (key.isEmpty) return [];
+    final uri = Uri.parse('https://integrate.api.nvidia.com/v1/models');
+    final r = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $key',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 20));
+    if (r.statusCode == 401 || r.statusCode == 403) {
+      throw Exception(
+        'NVIDIA anahtar yetkisiz (${r.statusCode}). build.nvidia.com anahtarini kontrol et.',
+      );
+    }
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      debugPrint('NVIDIA models HTTP ${r.statusCode}: ${r.body}');
+      return [];
+    }
+    final data = jsonDecode(r.body);
+    final list = <String>[];
+    if (data is Map && data['data'] is List) {
+      for (final item in data['data'] as List) {
+        if (item is Map && item['id'] != null) {
+          list.add(item['id'].toString());
+        }
+      }
+    }
+    return list;
+  }
+
+  Future<String> _nvidiaCagir({
+    required String sistem,
+    required String kullanici,
+  }) async {
+    final tercih = settings.nvidiaModel.trim();
+    final adaylar = <String>[];
+    if (tercih.isNotEmpty) adaylar.add(tercih);
+
+    try {
+      final canli = await nvidiaModelListesi();
+      for (final m in canli) {
+        if (!adaylar.contains(m)) adaylar.add(m);
+      }
+      debugPrint('NVIDIA canli model sayisi: ${canli.length}');
+      if (canli.isEmpty) {
+        throw Exception(
+          'NVIDIA /v1/models bos dondu. Hesabinda etkin model yok veya anahtar sinirli.',
+        );
+      }
+    } catch (e) {
+      debugPrint('NVIDIA model listesi: $e');
+      final s = e.toString();
+      if (s.contains('401') || s.contains('403') || s.contains('yetkisiz')) {
+        rethrow;
+      }
+      for (final m in const [
+        'meta/llama-3.3-70b-instruct',
+        'meta/llama3-70b-instruct',
+        'microsoft/phi-3-mini-4k-instruct',
+        'google/gemma-2-9b-it',
+      ]) {
+        if (!adaylar.contains(m)) adaylar.add(m);
+      }
+    }
+
+    if (adaylar.isEmpty) {
+      throw Exception(
+        'NVIDIA hesabinda kullanilabilir model yok. build.nvidia.com',
+      );
+    }
+
+    Object? son;
+    final denenecek = adaylar.take(8).toList();
+    for (final model in denenecek) {
+      try {
+        final yanit = await _openaiUyumluCagir(
+          baseUrl: 'https://integrate.api.nvidia.com/v1',
+          apiKey: settings.nvidiaApiKey,
+          model: model,
+          sistem: sistem,
+          kullanici: kullanici,
+        );
+        if (settings.nvidiaModel != model) {
+          settings.nvidiaModel = model;
+          await settings.kaydet();
+        }
+        return yanit;
+      } catch (e) {
+        son = e;
+        debugPrint('NVIDIA dene $model: $e');
+        continue;
+      }
+    }
+    throw Exception(
+      'NVIDIA yanit vermedi. Denenen: ${denenecek.join(", ")}. Son: $son',
+    );
   }
 
   Future<String> _openaiUyumluCagir({
@@ -172,8 +285,8 @@ class LlmService {
         {'role': 'system', 'content': sistem},
         {'role': 'user', 'content': kullanici},
       ],
-      'temperature': 0.6,
-      'max_tokens': 200,
+      'temperature': 0.4,
+      'max_tokens': 120,
     });
     final yanit = await http
         .post(
@@ -184,7 +297,7 @@ class LlmService {
           },
           body: govde,
         )
-        .timeout(const Duration(seconds: 45));
+        .timeout(const Duration(seconds: 25));
     if (yanit.statusCode < 200 || yanit.statusCode >= 300) {
       final body = yanit.body.length > 200
           ? yanit.body.substring(0, 200)
@@ -207,7 +320,7 @@ class LlmService {
     final uri = Uri.parse('https://api.anthropic.com/v1/messages');
     final govde = jsonEncode({
       'model': 'claude-3-5-haiku-latest',
-      'max_tokens': 200,
+      'max_tokens': 120,
       'system': sistem,
       'messages': [
         {'role': 'user', 'content': kullanici},
@@ -223,7 +336,7 @@ class LlmService {
           },
           body: govde,
         )
-        .timeout(const Duration(seconds: 45));
+        .timeout(const Duration(seconds: 25));
     if (yanit.statusCode < 200 || yanit.statusCode >= 300) {
       throw Exception('Claude HTTP ${yanit.statusCode}: ${yanit.body.length > 120 ? yanit.body.substring(0, 120) : yanit.body}');
     }
@@ -270,68 +383,65 @@ class LlmService {
     required String sistem,
     required String kullanici,
   }) async {
-    final tercih = settings.geminiModel.trim();
-    // 2026 resmi metin modelleri (ai.google.dev)
-    final bilinen = <String>[
-      'gemini-3.8-flash',
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-            'gemini-2.5-flash',
-            'gemini-2.5-pro',
-    ];
-    final apiListesi = await _geminiModelleriListele();
-    // Flash / pro oncelikli siralama
-    final flashlar = apiListesi
-        .where((m) =>
-            m.contains('flash') &&
-            !m.contains('tts') &&
-            !m.contains('image') &&
-            !m.contains('live'))
-        .toList();
-    final modeller = <String>[
-      if (tercih.isNotEmpty) tercih,
-      ...flashlar,
-      ...apiListesi,
-      ...bilinen,
-    ];
-    final sirali = <String>[];
-    for (final m in modeller) {
-      if (m.isNotEmpty && !sirali.contains(m)) sirali.add(m);
-    }
-    if (sirali.isEmpty) {
-      throw Exception('Kullanilabilir Gemini modeli bulunamadi. Anahtari kontrol et.');
+    final anahtarlar = settings.geminiTumAnahtarlar;
+    if (anahtarlar.isEmpty) {
+      throw Exception('Gemini anahtar yok');
     }
 
-    String sonHata = '';
-    for (final model in sirali.take(12)) {
-      try {
-        return await _geminiTekModel(
-          model: model,
-          sistem: sistem,
-          kullanici: kullanici,
-        );
-      } catch (e) {
-        sonHata = e.toString();
-        debugPrint('Gemini model $model basarisiz: $e');
-        if (sonHata.contains('401') ||
-            sonHata.contains('403') ||
-            sonHata.contains('API_KEY_INVALID')) {
-          rethrow;
+    final tercih = settings.geminiModel.trim().isEmpty
+        ? 'gemini-3.8-flash'
+        : settings.geminiModel.trim();
+    final modeller = <String>[
+      tercih,
+      'gemini-3.8-flash',
+      'gemini-3.7-flash',
+      'gemini-3.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+    ];
+    final uniq = <String>[];
+    for (final m in modeller) {
+      if (m.isNotEmpty && !uniq.contains(m)) uniq.add(m);
+    }
+
+    Object? sonHata;
+    for (final key in anahtarlar) {
+      for (final model in uniq.take(4)) {
+        try {
+          return await _geminiTekModel(
+            model: model,
+            sistem: sistem,
+            kullanici: kullanici,
+            apiKey: key,
+          );
+        } catch (e) {
+          sonHata = e;
+          final s = e.toString();
+          debugPrint('Gemini key/model hata: $s');
+          if (s.contains('429') || s.contains('quota') || s.contains('RESOURCE_EXHAUSTED')) {
+            // Bu anahtar kotasi dolu -> sonraki anahtar
+            break;
+          }
+          // 404 model -> sonraki model ayni anahtar
+          continue;
         }
       }
     }
     throw Exception(
-        'Hicbir Gemini modeli yanit vermedi. '
-        'Denenen: ${sirali.take(8).join(", ")}. Son hata: $sonHata');
+      sonHata ??
+          'Gemini yanit yok. Anahtar sayisi: ${anahtarlar.length}. '
+              'Farkli projelerden anahtar ekle veya Flash-Lite dene.',
+    );
   }
 
   Future<String> _geminiTekModel({
     required String model,
     required String sistem,
     required String kullanici,
+    required String apiKey,
   }) async {
-    final key = settings.geminiApiKey.trim();
+    final key = apiKey.trim();
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
     );
