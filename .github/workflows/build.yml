@@ -26,20 +26,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Gradle sürümünü 8.7 yap
-        run: |
-          # Hem kök hem iç içe tablet-main yapısını destekle
-          for f in \
-            android/gradle/wrapper/gradle-wrapper.properties \
-            tablet-main/android/gradle/wrapper/gradle-wrapper.properties
-          do
-            if [ -f "$f" ]; then
-              sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip|' "$f"
-              echo "Güncellendi: $f"
-              cat "$f"
-            fi
-          done
-
       - name: Proje klasörünü bul
         id: root
         run: |
@@ -47,15 +33,41 @@ jobs:
             echo "dir=." >> $GITHUB_OUTPUT
           elif [ -f "tablet-main/pubspec.yaml" ]; then
             echo "dir=tablet-main" >> $GITHUB_OUTPUT
+          elif [ -f "tablet-main-main/pubspec.yaml" ]; then
+            echo "dir=tablet-main-main" >> $GITHUB_OUTPUT
           else
-            echo "pubspec.yaml bulunamadı" >&2
-            find . -name pubspec.yaml | head
-            exit 1
+            FOUND=$(find . -name pubspec.yaml -not -path '*/.*' | head -1)
+            if [ -n "$FOUND" ]; then
+              DIR=$(dirname "$FOUND")
+              echo "dir=$DIR" >> $GITHUB_OUTPUT
+              echo "Bulundu: $DIR"
+            else
+              echo "pubspec.yaml bulunamadı" >&2
+              find . -maxdepth 3 -type d
+              exit 1
+            fi
           fi
 
       - name: Bağımlılıkları yükle
         working-directory: ${{ steps.root.outputs.dir }}
         run: flutter pub get
+
+      - name: Gradle 8.7 zorunlu
+        working-directory: ${{ steps.root.outputs.dir }}
+        run: |
+          mkdir -p android/gradle/wrapper
+          printf '%s\n' \
+            'distributionBase=GRADLE_USER_HOME' \
+            'distributionPath=wrapper/dists' \
+            'zipStoreBase=GRADLE_USER_HOME' \
+            'zipStorePath=wrapper/dists' \
+            'distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-all.zip' \
+            > android/gradle/wrapper/gradle-wrapper.properties
+          echo "=== gradle-wrapper.properties ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+          if [ -f android/settings.gradle ]; then
+            sed -i 's/com.android.application" version "[0-9.]*"/com.android.application" version "8.5.2"/' android/settings.gradle || true
+          fi
 
       - name: APK oluştur
         working-directory: ${{ steps.root.outputs.dir }}
@@ -65,7 +77,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dest-os-ares-apk
-          path: |
-            build/app/outputs/flutter-apk/app-release.apk
-            tablet-main/build/app/outputs/flutter-apk/app-release.apk
+          path: '**/app-release.apk'
           if-no-files-found: warn
+          retention-days: 1
+          overwrite: true
